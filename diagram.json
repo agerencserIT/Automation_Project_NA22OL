@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "author": "Anonymous maker",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 57.6, "left": 235.24, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -95.7, "left": -101.4, "attrs": {} },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr1",
+      "top": 60.8,
+      "left": -277.6,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": 226.8,
+      "left": -5.8,
+      "attrs": { "color": "white" }
+    },
+    { "type": "wokwi-servo", "id": "servo1", "top": -98, "left": 86.4, "attrs": {} },
+    {
+      "type": "wokwi-text",
+      "id": "text1",
+      "top": 19.2,
+      "left": -163.2,
+      "attrs": { "text": "DHT22 Connects to the ESP32" }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "text2",
+      "top": 124.8,
+      "left": -278.4,
+      "attrs": { "text": "LDR Connects to the ESP32" }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "text3",
+      "top": 278.4,
+      "left": -211.2,
+      "attrs": { "text": "LED Connects to the ESP32 and take input from the LDR" }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "text4",
+      "top": -9.6,
+      "left": 48,
+      "attrs": { "text": "Servo Connects to the ESP32 and take input from the DHT22" }
+    }
+  ],
+  "connections": [ [ "esp:TX", "$serialMonitor:RX", "", [] ], [ "esp:RX", "$serialMonitor:TX", "", [] ] ],
+  "dependencies": {}
+}
