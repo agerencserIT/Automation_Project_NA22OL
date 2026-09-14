@@ -1,12 +1,14 @@
 #include <Arduino.h>
 
+int Light = 23; // LED is wired to GPIO23 through a 220ohm resistor (see diagram.json)
+
 void setup() {
-  // put your setup code here, to run once:
-  Serial.begin(115200);
-  Serial.println("Hello, ESP32!");
+  pinMode(Light, OUTPUT);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  delay(10); // this speeds up the simulation
+  digitalWrite(Light, HIGH);
+  delay(500);
+  digitalWrite(Light, LOW);
+  delay(500); // this speeds up the simulation
 }
