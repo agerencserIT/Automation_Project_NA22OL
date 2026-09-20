@@ -25,3 +25,5 @@ That's it — the circuit runs locally, no browser needed.
 ### No time to set up the extensions?
 
 You can still run it the simple way: go to [wokwi.com](https://wokwi.com), create a new ESP32 project, and paste in the contents of `diagram.json` and `src/main.cpp`. Slower, but zero setup.
+
+### this is a removal attempt
