@@ -36,6 +36,8 @@ void loop() {
 
   if (isnan(temperature) || isnan(humidity)) {
     Serial.println("Failed to read DHT22!");
+    digitalWrite(LED_PIN, LOW);
+    ventServo.write(90);
     delay(2000);
     return;
   }
@@ -62,12 +64,26 @@ void loop() {
     Serial.println("Light: OFF");
   }
 
-  if (temperature > 30) {
+  if (temperature > 30 && humidity >= 70) {
     ventServo.write(90);
-    Serial.println("Ventilation: OPEN");
+    Serial.println("Room Status: HOT & HUMID");
+    Serial.println("Ventilation: FULLY OPEN");
+
+    // add thingspeak warning here later
   }
-  else if (temperature < 27) {
+  else if (temperature > 30 && humidity < 70) {
+    ventServo.write(90);
+    Serial.println("Room Status: HOT");
+    Serial.println("Ventilation: FULLY OPEN");
+  }
+  else if (temperature >= 27 && temperature <= 30) {
+    ventServo.write(45);
+    Serial.println("Room Status: WARM");
+    Serial.println("Ventilation: HALFWAY OPEN");
+  }
+  else {
     ventServo.write(0);
+    Serial.println("Room Status: COMFORTABLE");
     Serial.println("Ventilation: CLOSED");
   }
 
