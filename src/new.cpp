@@ -19,25 +19,29 @@ const char* WIFI_PASSWORD = "";
 
 const char* THINGSPEAK_API_KEY = "T843ILUU2ACWK5AZ";
 const unsigned long UPLOAD_INTERVAL = 20000;  // free tier allows 1 update per 15s
+const unsigned long WIFI_RETRY_INTERVAL = 10000;
+
 unsigned long lastUpload = 0;
+unsigned long lastWiFiAttempt = 0;
 
 DHT dht(DHTPIN, DHTTYPE);
 Servo ventServo;
 bool ventOpen = false;
 
 void connectWiFi() {
-  Serial.print("Connecting to Wi-Fi");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(250);
-    Serial.print(".");
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
   }
-  Serial.println(" connected");
+
+  Serial.println("Attempting Wi-Fi connection...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  lastWiFiAttempt = millis();
 }
 
 void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool ledOn, bool ventOpen) {
   if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
+    Serial.println("ThingSpeak upload skipped: Wi-Fi disconnected");
+    return;
   }
 
   String url = "http://api.thingspeak.com/update?api_key=" + String(THINGSPEAK_API_KEY) +
@@ -56,6 +60,7 @@ void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool le
   } else {
     Serial.printf("ThingSpeak error: %d\n", httpCode);
   }
+
   http.end();
 }
 
@@ -78,45 +83,79 @@ void setup() {
 
 void loop() {
 
+  // Periodically attempt to reconnect to wifi without stopping automation
+  if (WiFi.status() != WL_CONNECTED &&
+      millis() - lastWiFiAttempt >= WIFI_RETRY_INTERVAL) {
+    connectWiFi();
+  }
+
   float temperature = dht.readTemperature();
   float humidity = dht.readHumidity();
 
-  if (isnan(temperature) || isnan(humidity)) {
+  bool dhtValid = !isnan(temperature) && !isnan(humidity);
+
+  // DHT22 failsafe
+  if (!dhtValid) {
     Serial.println("Failed to read DHT22!");
-    delay(2000);
-    return;
+    Serial.println("Temperature automation disabled");
+    Serial.println("SAFE STATE: Ventilation OPEN");
+
+    ventServo.write(90);
+    ventOpen = true;
   }
 
   int lightLevel = analogRead(LDR_PIN);
 
-  Serial.print("Temperature: ");
-  Serial.print(temperature);
-  Serial.println(" C");
+  bool ldrValid = lightLevel > 0 && lightLevel < 4095;
 
-  Serial.print("Humidity: ");
-  Serial.print(humidity);
-  Serial.println(" %");
+  // LDR failsafe
+  if (!ldrValid) {
+    Serial.println("Failed to read LDR!");
+    Serial.println("Automatic light control disabled");
+    Serial.println("SAFE STATE: LED OFF");
 
-  Serial.print("Light Level: ");
-  Serial.println(lightLevel);
-
-  bool ledOn = lightLevel < LIGHT_THRESHOLD;
-  digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
-  Serial.println(ledOn ? "Light: ON" : "Light: OFF");
-
-  if (temperature > 30) {
-    ventServo.write(90);
-    ventOpen = true;
-    Serial.println("Ventilation: OPEN");
+    digitalWrite(LED_PIN, LOW);
   }
-  else if (temperature < 27) {
-    ventServo.write(0);
-    ventOpen = false;
-    Serial.println("Ventilation: CLOSED");
+
+  if (dhtValid) {
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.println(" C");
+
+    Serial.print("Humidity: ");
+    Serial.print(humidity);
+    Serial.println(" %");
+  }
+
+  bool ledOn = false;
+
+  if (ldrValid) {
+    Serial.print("Light Level: ");
+    Serial.println(lightLevel);
+
+    ledOn = lightLevel < LIGHT_THRESHOLD;
+    digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
+    Serial.println(ledOn ? "Light: ON" : "Light: OFF");
+  }
+
+  if (dhtValid) {
+    if (temperature > 30) {
+      ventServo.write(90);
+      ventOpen = true;
+      Serial.println("Ventilation: OPEN");
+    }
+    else if (temperature < 27) {
+      ventServo.write(0);
+      ventOpen = false;
+      Serial.println("Ventilation: CLOSED");
+    }
   }
 
   if (millis() - lastUpload >= UPLOAD_INTERVAL) {
-    sendToThingSpeak(temperature, humidity, lightLevel, ledOn, ventOpen);
+    if (dhtValid && ldrValid) {
+      sendToThingSpeak(temperature, humidity, lightLevel, ledOn, ventOpen);
+    }
+
     lastUpload = millis();
   }
 
