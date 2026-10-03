@@ -1,13 +1,15 @@
 #include <Arduino.h>
-#include <DHT.h>
-#include <ESP32Servo.h>
+#include <DHT.h>         // DHT22 temperature and humidity sensor
+#include <ESP32Servo.h>  // PWM control for the vent servo
 #include <WiFi.h>
-#include <HTTPClient.h>
+#include <HTTPClient.h>  // sends HTTP requests to ThingSpeak
 
+// Light sensor (LDR) and the LED
 #define LDR_PIN 34
 #define LED_PIN 23
 const int LIGHT_THRESHOLD = 2000;
 
+// Temperature and humidity sensor
 #define DHTPIN 14
 #define DHTTYPE DHT22
 
@@ -19,60 +21,64 @@ const char* WIFI_PASSWORD = "";
 
 const char* THINGSPEAK_API_KEY = "T843ILUU2ACWK5AZ";
 const unsigned long UPLOAD_INTERVAL = 20000;  // free tier allows 1 update per 15s
-const unsigned long WIFI_RETRY_INTERVAL = 10000;
-
 unsigned long lastUpload = 0;
-unsigned long lastWiFiAttempt = 0;
 
 DHT dht(DHTPIN, DHTTYPE);
 Servo ventServo;
-bool ventOpen = false;
+int ventAngle = 0;  // 0 = closed, 45 = halfway, 90 = fully open
 
+// Tries to connect to Wi-Fi for up to 10 seconds, then carries on either way
 void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return;
-  }
-
-  Serial.println("Attempting Wi-Fi connection...");
+  Serial.print("Connecting to Wi-Fi");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  lastWiFiAttempt = millis();
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println(WiFi.status() == WL_CONNECTED ? " connected" : " failed, will retry later");
 }
 
-void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool ledOn, bool ventOpen) {
+// Sends the latest readings to ThingSpeak as a single HTTP GET request
+void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool ledOn, int ventAngle) {
+  // If Wi-Fi has dropped, skip this upload and reconnect in the background,
+  // so the sensors, vent and light keep running
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("ThingSpeak upload skipped: Wi-Fi disconnected");
+    Serial.println("Wi-Fi down, skipping upload");
+    WiFi.reconnect();
     return;
   }
 
+  // Build the request URL, with each value in its own ThingSpeak field
   String url = "http://api.thingspeak.com/update?api_key=" + String(THINGSPEAK_API_KEY) +
                "&field1=" + String(temperature) +
                "&field2=" + String(humidity) +
                "&field3=" + String(lightLevel) +
                "&field4=" + String(ledOn ? 1 : 0) +
-               "&field5=" + String(ventOpen ? 1 : 0);
+               "&field5=" + String(ventAngle);
 
   HTTPClient http;
   http.begin(url);
   int httpCode = http.GET();
 
+  // A 200 response returns the new entry number
   if (httpCode == 200) {
     Serial.println("ThingSpeak: entry " + http.getString());  // "0" means rejected
   } else {
     Serial.printf("ThingSpeak error: %d\n", httpCode);
   }
-
-  http.end();
+  http.end();  // close the connection
 }
 
 void setup() {
-
   pinMode(LDR_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
 
-  Serial.begin(115200);
+  Serial.begin(115200);  // serial monitor for debugging output
 
   dht.begin();
 
+  // Start with the vent closed
   ventServo.attach(SERVO_PIN);
   ventServo.write(0);
 
@@ -82,84 +88,77 @@ void setup() {
 }
 
 void loop() {
-
-  // Periodically attempt to reconnect to wifi without stopping automation
-  if (WiFi.status() != WL_CONNECTED &&
-      millis() - lastWiFiAttempt >= WIFI_RETRY_INTERVAL) {
-    connectWiFi();
-  }
-
   float temperature = dht.readTemperature();
   float humidity = dht.readHumidity();
 
-  bool dhtValid = !isnan(temperature) && !isnan(humidity);
-
-  // DHT22 failsafe
-  if (!dhtValid) {
+  // A failed DHT22 read (e.g. a bad checksum) returns NaN. Open the vent fully
+  // as a fail-safe, turn the LED off and skip the rest of this cycle.
+  if (isnan(temperature) || isnan(humidity)) {
     Serial.println("Failed to read DHT22!");
-    Serial.println("Temperature automation disabled");
-    Serial.println("SAFE STATE: Ventilation OPEN");
-
-    ventServo.write(90);
-    ventOpen = true;
+    digitalWrite(LED_PIN, LOW);
+    ventAngle = 90;
+    ventServo.write(ventAngle);
+    delay(2000);
+    return;
   }
 
   int lightLevel = analogRead(LDR_PIN);
 
-  bool ldrValid = lightLevel > 0 && lightLevel < 4095;
+  Serial.print("Temperature: ");
+  Serial.print(temperature);
+  Serial.println(" C");
 
-  // LDR failsafe
-  if (!ldrValid) {
-    Serial.println("Failed to read LDR!");
-    Serial.println("Automatic light control disabled");
-    Serial.println("SAFE STATE: LED OFF");
+  Serial.print("Humidity: ");
+  Serial.print(humidity);
+  Serial.println(" %");
 
-    digitalWrite(LED_PIN, LOW);
+  Serial.print("Light Level: ");
+  Serial.println(lightLevel);
+
+  // Turn the LED on when the light reading drops below the threshold
+  bool ledOn = lightLevel < LIGHT_THRESHOLD;
+  digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
+  Serial.println(ledOn ? "Light: ON" : "Light: OFF");
+
+  // Set the room status and vent position from the temperature and humidity
+  const char* roomStatus;
+  const char* ventStatus;
+
+  if (temperature > 30 && humidity >= 70) {
+    roomStatus = "HOT & HUMID";
+    ventAngle = 90;
+    ventStatus = "FULLY OPEN";
+    // add ThingSpeak warning here later
+  }
+  else if (temperature > 30) {
+    roomStatus = "HOT";
+    ventAngle = 90;
+    ventStatus = "FULLY OPEN";
+  }
+  else if (temperature >= 27) {  // 27-30°C
+    roomStatus = "WARM";
+    ventAngle = 45;
+    ventStatus = "HALFWAY OPEN";
+  }
+  else {
+    roomStatus = "COMFORTABLE";
+    ventAngle = 0;
+    ventStatus = "CLOSED";
   }
 
-  if (dhtValid) {
-    Serial.print("Temperature: ");
-    Serial.print(temperature);
-    Serial.println(" C");
+  ventServo.write(ventAngle);
+  Serial.print("Room Status: ");
+  Serial.println(roomStatus);
+  Serial.print("Ventilation: ");
+  Serial.println(ventStatus);
 
-    Serial.print("Humidity: ");
-    Serial.print(humidity);
-    Serial.println(" %");
-  }
-
-  bool ledOn = false;
-
-  if (ldrValid) {
-    Serial.print("Light Level: ");
-    Serial.println(lightLevel);
-
-    ledOn = lightLevel < LIGHT_THRESHOLD;
-    digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
-    Serial.println(ledOn ? "Light: ON" : "Light: OFF");
-  }
-
-  if (dhtValid) {
-    if (temperature > 30) {
-      ventServo.write(90);
-      ventOpen = true;
-      Serial.println("Ventilation: OPEN");
-    }
-    else if (temperature < 27) {
-      ventServo.write(0);
-      ventOpen = false;
-      Serial.println("Ventilation: CLOSED");
-    }
-  }
-
+  // Only upload every 20 seconds to stay within ThingSpeak's rate limit
   if (millis() - lastUpload >= UPLOAD_INTERVAL) {
-    if (dhtValid && ldrValid) {
-      sendToThingSpeak(temperature, humidity, lightLevel, ledOn, ventOpen);
-    }
-
+    sendToThingSpeak(temperature, humidity, lightLevel, ledOn, ventAngle);
     lastUpload = millis();
   }
 
   Serial.println("--------------------");
 
-  delay(2000);
+  delay(2000);  // check the sensors every 2 seconds
 }
