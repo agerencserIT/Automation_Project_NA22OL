@@ -3,6 +3,7 @@
 #include <ESP32Servo.h>  // PWM control for the vent servo
 #include <WiFi.h>
 #include <HTTPClient.h>  // sends HTTP requests to ThingSpeak
+#include "key.h"  // contains the ThingSpeak API key
 
 // Light sensor (LDR) and the LED
 #define LDR_PIN 34
@@ -19,7 +20,6 @@ const int LIGHT_THRESHOLD = 2000;
 const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
 
-const char* THINGSPEAK_API_KEY = "T843ILUU2ACWK5AZ";
 const unsigned long UPLOAD_INTERVAL = 20000;  // free tier allows 1 update per 15s
 unsigned long lastUpload = 0;
 
