@@ -38,15 +38,15 @@ void loop() {
   float humidity = dht.readHumidity(); 
 
   // A failed DHT22 read (e.g. a bad checksum) returns NaN, so skip this cycle 
-  if (isnan(temperature) || isnan(humidity)) { 
-    Serial.println("Failed to read DHT22!"); 
-    digitalWrite(LED_PIN, LOW); 
-    ventServo.write(90); 
-    delay(2000); 
-    return; 
-  } 
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("Failed to read DHT22!");
+    digitalWrite(LED_PIN, LOW);
+    ventServo.write(90);
+    delay(2000);
+    return;
+  }
  
-  int lightLevel = analogRead(LDR_PIN); 
+  int lightLevel = analogRead(LDR_PIN);
  
   Serial.print("Temperature: "); 
   Serial.print(temperature); 

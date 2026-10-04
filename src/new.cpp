@@ -40,7 +40,7 @@ void connectWiFi() {
 }
 
 // Sends the latest readings to ThingSpeak as a single HTTP GET request
-void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool ledOn, int ventAngle) {
+void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool ledOn, int ventAngle, bool hotHumidWarning) {
   // If Wi-Fi has dropped, skip this upload and reconnect in the background,
   // so the sensors, vent and light keep running
   if (WiFi.status() != WL_CONNECTED) {
@@ -55,7 +55,8 @@ void sendToThingSpeak(float temperature, float humidity, int lightLevel, bool le
                "&field2=" + String(humidity) +
                "&field3=" + String(lightLevel) +
                "&field4=" + String(ledOn ? 1 : 0) +
-               "&field5=" + String(ventAngle);
+               "&field5=" + String(ventAngle) +
+               "&field6=" + String(hotHumidWarning ? 1 : 0);
 
   HTTPClient http;
   http.begin(url);
@@ -91,8 +92,7 @@ void loop() {
   float temperature = dht.readTemperature();
   float humidity = dht.readHumidity();
 
-  // A failed DHT22 read (e.g. a bad checksum) returns NaN. Open the vent fully
-  // as a fail-safe, turn the LED off and skip the rest of this cycle.
+  // A failed DHT22 read (e.g. a bad checksum) returns NaN. Open the vent fully and turn off the LED, then skip this cycle
   if (isnan(temperature) || isnan(humidity)) {
     Serial.println("Failed to read DHT22!");
     digitalWrite(LED_PIN, LOW);
@@ -123,11 +123,14 @@ void loop() {
   // Set the room status and vent position from the temperature and humidity
   const char* roomStatus;
   const char* ventStatus;
+  bool hotHumidWarning = false;
 
   if (temperature > 30 && humidity >= 70) {
     roomStatus = "HOT & HUMID";
     ventAngle = 90;
     ventStatus = "FULLY OPEN";
+    hotHumidWarning = true;
+    Serial.println("WARNING: room is hot and humid");
     // add ThingSpeak warning here later
   }
   else if (temperature > 30) {
@@ -154,7 +157,7 @@ void loop() {
 
   // Only upload every 20 seconds to stay within ThingSpeak's rate limit
   if (millis() - lastUpload >= UPLOAD_INTERVAL) {
-    sendToThingSpeak(temperature, humidity, lightLevel, ledOn, ventAngle);
+    sendToThingSpeak(temperature, humidity, lightLevel, ledOn, ventAngle, hotHumidWarning);
     lastUpload = millis();
   }
 
